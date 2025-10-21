@@ -1,0 +1,76 @@
+version: '3'
+
+services:
+  nessie:
+    image: ghcr.io/projectnessie/nessie:0.99.0
+    container_name: nessie-project
+    ports:
+      - "19120:19120"
+    environment:
+      - nessie.version.store.type=IN_MEMORY
+      - nessie.catalog.default-warehouse=warehouse
+      - nessie.catalog.warehouses.warehouse.location=s3://my-bucket/
+      - nessie.catalog.service.s3.default-options.endpoint=http://minio:9000/
+      - nessie.catalog.service.s3.default-options.access-key=urn:nessie-secret:quarkus:nessie.catalog.secrets.access-key
+      - nessie.catalog.service.s3.default-options.path-style-access=true
+      - nessie.catalog.service.s3.default-options.auth-type=STATIC
+      - nessie.catalog.secrets.access-key.name=admin
+      - nessie.catalog.secrets.access-key.secret=password
+      - nessie.catalog.service.s3.default-options.region=us-east-1
+      - nessie.server.authentication.enabled=false
+    networks:
+      - project-net
+
+  minio:
+    image: quay.io/minio/minio
+    container_name: minio-project
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password
+      - MINIO_REGION=us-east-1
+    entrypoint: >
+      /bin/sh -c "
+      minio server /data --console-address ':9001' &
+      sleep 10;
+      mc alias set myminio http://localhost:9000 admin password;
+      mc mb myminio/my-bucket --ignore-existing;
+      tail -f /dev/null"
+    networks:
+      - project-net
+
+  jupyter:
+    image: jupyter/base-notebook:latest
+    container_name: jupyter-project
+    ports:
+      - "8888:8888"
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - DLT_TELEMETRY=off
+    volumes:
+      - ./notebooks:/workspace
+      - ./dlt:/workspace/.dlt
+    networks:
+      - project-net
+    command: >
+      bash -c "
+      jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token='' --NotebookApp.password='' --notebook-dir=/workspace"
+      
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse-project
+    ports:
+      - "8123:8123"
+      - "9002:9000"
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: default
+    networks:
+      - project-net
+  
+networks:
+  project-net:
+ 
